@@ -1,0 +1,50 @@
+/* ELM                                                                        */
+/* Copyright (C) 2024  Miles McGruder                                         */
+/*                                                                            */
+/* This program is free software: you can redistribute it and/or modify       */
+/* it under the terms of the GNU General Public License as published by       */
+/* the Free Software Foundation, either version 3 of the License, or          */
+/* (at your option) any later version.                                        */
+/*                                                                            */
+/* This program is distributed in the hope that it will be useful,            */
+/* but WITHOUT ANY WARRANTY; without even the implied warranty of             */
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the              */
+/* GNU General Public License for more details.                               */
+/*                                                                            */
+/* You should have received a copy of the GNU General Public License          */
+/* along with this program.  If not, see <https://www.gnu.org/licenses/>.     */
+
+#version 450
+
+layout(local_size_x = 256) in;
+
+layout(std430, set = 0, binding = 0) buffer resolution       { uint N; };
+layout(std430, set = 0, binding = 1) buffer polynomial_order { uint p; };
+layout(std430, set = 0, binding = 2) buffer basis_functions  { float bf[]; };
+
+#include "basis.glsl"
+
+void main()
+{
+  uint Np1    = N + 1;
+  uint Np1p3  = Np1 * Np1 * Np1;
+  uint pp1    = p + 1;
+  uint nbf3d  = pp1 * pp1 * pp1;
+  uint bf_len = Np1p3 * nbf3d;
+  uint stride = gl_NumWorkGroups.x * gl_WorkGroupSize.x;
+
+  float ref_unit = 1. / float(N);
+
+  for (uint bf_pos = gl_GlobalInvocationID.x; bf_pos < bf_len; bf_pos += stride)
+  {
+    uint bi       = bf_pos / Np1p3;  // truncation intentional
+    uint node_num = bf_pos - (bi * Np1p3);
+
+    uint nx, ny, nz;
+    split3(node_num, Np1, nx, ny, nz);
+    
+    vec3 ref_loc = ref_unit * vec3(float(nx), float(ny), float(nz));
+
+    bf[bf_pos] = lagrange3d(bi, p, ref_loc); 
+  }
+}

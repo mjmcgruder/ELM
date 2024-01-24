@@ -1,0 +1,138 @@
+/* ELM                                                                        */
+/* Copyright (C) 2024  Miles McGruder                                         */
+/*                                                                            */
+/* This program is free software: you can redistribute it and/or modify       */
+/* it under the terms of the GNU General Public License as published by       */
+/* the Free Software Foundation, either version 3 of the License, or          */
+/* (at your option) any later version.                                        */
+/*                                                                            */
+/* This program is distributed in the hope that it will be useful,            */
+/* but WITHOUT ANY WARRANTY; without even the implied warranty of             */
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the              */
+/* GNU General Public License for more details.                               */
+/*                                                                            */
+/* You should have received a copy of the GNU General Public License          */
+/* along with this program.  If not, see <https://www.gnu.org/licenses/>.     */
+
+#version 450
+
+
+layout(local_size_x = 128) in;
+
+
+#include "constants.glsl"
+#include "data_structures.glsl"
+
+
+layout(std430, set = 0, binding = 0) buffer solver_params {
+  uint p;
+  uint q;
+  uint nelem;
+  uint etype;
+  uint dim;
+  uint nbfp;
+  uint nbfq;
+  float gamma;
+} params;
+layout(std430, set = 0, binding = 1) buffer geom_data {
+  float nodes[];
+};
+layout(std430, set = 0, binding = 2) buffer state_data {
+  float U[];
+};
+layout(std430, set = 0, binding = 3) buffer output_option_data {
+  int output_option;
+};
+layout(std430, set = 0, binding = 4) buffer bbox_data {
+  aabb bboxes[];
+};
+layout(std430, set = 0, binding = 5) buffer output_bounds_data {
+  vec2 output_bounds[];
+};
+
+
+#include "mapping.glsl"
+#include "output.glsl"
+
+
+void aabb_grow(const in vec3 pos, inout aabb bbox)
+{
+  if (pos.x > bbox.h.x) bbox.h.x = pos.x;
+  if (pos.x < bbox.l.x) bbox.l.x = pos.x;
+  if (pos.y > bbox.h.y) bbox.h.y = pos.y;
+  if (pos.y < bbox.l.y) bbox.l.y = pos.y;
+  if (pos.z > bbox.h.z) bbox.h.z = pos.z;
+  if (pos.z < bbox.l.z) bbox.l.z = pos.z;
+}
+
+
+void main()
+{
+  uint e = gl_GlobalInvocationID.x;  // each thread does one element
+
+  aabb bbox;
+  bbox.l = vec3(+FLT_MAX);
+  bbox.h = vec3(-FLT_MAX);
+
+  // approximate element bounding box
+
+  const uint bboxn = 10;  // points to check in each direction
+
+  for (uint i = 0; i < bboxn; ++i)
+  {
+    for (uint j = 0; j < bboxn; ++j)
+    {
+      float posi = float(i) / float(bboxn - 1);
+      float posj = float(j) / float(bboxn - 1);
+
+      vec3 r_posmx = vec3(0., posi, posj);
+      vec3 g_posmx = ref2glo(r_posmx, e, params.q);
+      aabb_grow(g_posmx, bbox);
+      vec3 r_pospx = vec3(1., posi, posj);
+      vec3 g_pospx = ref2glo(r_pospx, e, params.q);
+      aabb_grow(g_pospx, bbox);
+      vec3 r_posmy = vec3(posi, 0., posj);
+      vec3 g_posmy = ref2glo(r_posmy, e, params.q);
+      aabb_grow(g_posmy, bbox);
+      vec3 r_pospy = vec3(posi, 1., posj);
+      vec3 g_pospy = ref2glo(r_pospy, e, params.q);
+      aabb_grow(g_pospy, bbox);
+      vec3 r_posmz = vec3(posi, posj, 0.);
+      vec3 g_posmz = ref2glo(r_posmz, e, params.q);
+      aabb_grow(g_posmz, bbox);
+      vec3 r_pospz = vec3(posi, posj, 1.);
+      vec3 g_pospz = ref2glo(r_pospz, e, params.q);
+      aabb_grow(g_pospz, bbox);
+    }
+  }
+
+  bboxes[e] = bbox;
+
+  // subcell grid evaluation
+
+  const uint n   = 3;  // number of INTERVALS in sub-cell grid
+  const float sp = 1. / float(n);
+
+  vec2 output_bound = vec2(+FLT_MAX, -FLT_MAX);
+
+  for (uint iz = 0; iz < n + 1; ++iz)
+  {
+    for (uint iy = 0; iy < n + 1; ++iy)
+    {
+      for (uint ix = 0; ix < n + 1; ++ix)
+      {
+        vec3 ref = vec3(ix * sp, iy * sp, iz * sp);
+
+        float state[5];
+        interp_state(ref, int(e), params.p, state);
+
+        float outp = eval_output(output_option, state, params.gamma);
+
+        if      (outp < output_bound.x) output_bound.x = outp;
+        else if (outp > output_bound.y) output_bound.y = outp;
+      }
+    }
+  }
+
+  output_bounds[e] = output_bound;
+}

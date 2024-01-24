@@ -1,0 +1,66 @@
+/* ELM                                                                        */
+/* Copyright (C) 2024  Miles McGruder                                         */
+/*                                                                            */
+/* This program is free software: you can redistribute it and/or modify       */
+/* it under the terms of the GNU General Public License as published by       */
+/* the Free Software Foundation, either version 3 of the License, or          */
+/* (at your option) any later version.                                        */
+/*                                                                            */
+/* This program is distributed in the hope that it will be useful,            */
+/* but WITHOUT ANY WARRANTY; without even the implied warranty of             */
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the              */
+/* GNU General Public License for more details.                               */
+/*                                                                            */
+/* You should have received a copy of the GNU General Public License          */
+/* along with this program.  If not, see <https://www.gnu.org/licenses/>.     */
+
+#version 450
+
+#define TILE_SIZE 16
+
+layout(local_size_x = TILE_SIZE, local_size_y = TILE_SIZE) in;
+
+layout(std430, binding = 0) buffer dims0 { uint m; };
+layout(std430, binding = 1) buffer dims1 { uint k; };
+layout(std430, binding = 2) buffer dims2 { uint n; };
+layout(std430, binding = 3) buffer arrayA { float A[]; };
+layout(std430, binding = 4) buffer arrayB { float B[]; };
+layout(std430, binding = 5) buffer arrayC { float C[]; };
+
+shared float tileA[TILE_SIZE * TILE_SIZE];
+shared float tileB[TILE_SIZE * TILE_SIZE];
+
+void main()
+{
+  uint rT = gl_LocalInvocationID.y;
+  uint cT = gl_LocalInvocationID.x;
+  uint rC = TILE_SIZE * gl_WorkGroupID.y + rT;
+  uint cC = TILE_SIZE * gl_WorkGroupID.x + cT;
+
+  float accC = 0.;
+
+  for (uint bk = 0; bk < (k + TILE_SIZE - 1) / TILE_SIZE; ++bk)
+  {
+    if ((rC) < m && (TILE_SIZE * bk + cT) < k)
+      tileA[TILE_SIZE * rT + cT] = A[k * (rC) + (TILE_SIZE * bk + cT)];
+    else
+      tileA[TILE_SIZE * rT + cT] = 0.;
+
+    if ((TILE_SIZE * bk + rT) < k && (cC) < n)
+      tileB[TILE_SIZE * rT + cT] = B[n * (TILE_SIZE * bk + rT) + (cC)];
+    else
+      tileB[TILE_SIZE * rT + cT] = 0.;
+
+    memoryBarrierShared();
+    barrier();
+
+    for (uint i = 0; i < TILE_SIZE; ++i)
+      accC += tileA[TILE_SIZE * rT + i] * tileB[TILE_SIZE * i + cT];
+
+    memoryBarrierShared();  // necessary?
+    barrier();
+  }
+
+  if (rC < m && cC < n)
+    C[n * rC + cC] = accC;
+}

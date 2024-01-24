@@ -1,0 +1,14 @@
+# clangd
+.clangd
+.cache
+compile_commands.json
+
+# python
+*__pycache__
+
+# local dirs
+bin
+bin_shader
+
+# local build info
+local.mk
