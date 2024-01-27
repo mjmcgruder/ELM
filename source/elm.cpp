@@ -202,7 +202,7 @@ int main(int argc, char** argv)
 
     kdtree tree;
     tree.bbox = rcmetadata.domain_bbox;
-    kd_build(0, rcmetadata.domain_bbox, -1, overlap_list, 0, rcmetadata, tree);
+    kd_build(rcmetadata.domain_bbox, -1, overlap_list, 0, rcmetadata, tree);
 
     rcdata.d_kdnodes          = dbuffer<kdnode>(tree.nodes.size());
     rcdata.d_kd_leaf_elements = dbuffer<int>(tree.leaf_elements.size());

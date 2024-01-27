@@ -17,7 +17,7 @@
 #pragma once
 
 
-# include <algorithm>
+#include <algorithm>
 
 #include "buffers.cpp"
 
@@ -128,8 +128,68 @@ bool bboxedge_comp(const bboxedge& a, const bboxedge& b)
 }
 
 
-void kd_build(int axis, aabb bbox, int parent, std::vector<int>& overlap,
-              int depth, render_metadata& metadata, kdtree& tree)
+struct split_location
+{
+  float cost;
+  usize edge;
+};
+
+
+split_location find_best_split(int axis, aabb& bbox, std::vector<int>& overlap,
+                               render_metadata& metadata,
+                               std::vector<bboxedge>& edges)
+{
+  aabb bbox_l, bbox_r;
+
+  for (usize i = 0; i < overlap.size(); ++i)
+  {
+    int  elem        = overlap[i];
+    aabb elem_bbox   = metadata.elem_bboxes[elem];
+    edges[2 * i + 0] = {elem_bbox.l[axis], elem, bboxedge_type::low};
+    edges[2 * i + 1] = {elem_bbox.h[axis], elem, bboxedge_type::high};
+  }
+
+  std::sort(edges.begin(), edges.end(), bboxedge_comp);
+
+  split_location best_split;
+  float sa_f      = aabb_surface_area(bbox);
+  usize nl        = 0;
+  usize nr        = overlap.size();
+  best_split.cost = FLT_MAX;
+  best_split.edge = 0;
+  for (usize i = 0; i < edges.size(); ++i)
+  {
+    if (edges[i].type == bboxedge_type::high)
+    {
+      --nr;
+    }
+
+    bbox_l         = bbox_r         = bbox;
+    bbox_l.h[axis] = bbox_r.l[axis] = edges[i].pos;
+
+    float pl = aabb_surface_area(bbox_l) / sa_f;
+    float pr = aabb_surface_area(bbox_r) / sa_f;
+
+    float cost = pl * nl + pr * nr;
+
+    if (cost < best_split.cost)
+    {
+      best_split.cost = cost;
+      best_split.edge = i;
+    }
+
+    if (edges[i].type == bboxedge_type::low)
+    {
+      ++nl;
+    }
+  }
+
+  return best_split;
+}
+
+
+void kd_build(aabb bbox, int parent, std::vector<int>& overlap, int depth,
+              render_metadata& metadata, kdtree& tree)
 {
   int node_number = tree.nodes.size();
   tree.nodes.push_back(kdnode());
@@ -141,91 +201,73 @@ void kd_build(int axis, aabb bbox, int parent, std::vector<int>& overlap,
   aabb             bbox_l, bbox_r;
   std::vector<int> overlap_l, overlap_r;
 
-  // surface area rule / bbox edge split location
+  // determine split axis and location using surface area heuristic
+
+  usize nedges = 2 * overlap.size();
+
+  float                 best_cost = FLT_MAX;
+  usize                 best_edge = 0;
+  int                   best_axis = 0;
+  std::vector<bboxedge> best_edges(nedges);
+
+  std::vector<bboxedge> edges_workspace(nedges);
+  for (int axis_candidate = 0; axis_candidate < 3; ++axis_candidate)
   {
-    std::vector<bboxedge> edges(2 * overlap.size());
-    for (usize i = 0; i < overlap.size(); ++i)
+    split_location best_split =
+    find_best_split(axis_candidate, bbox, overlap, metadata, edges_workspace);
+
+    if (best_split.cost < best_cost)
     {
-      int  elem        = overlap[i];
-      aabb elem_bbox   = metadata.elem_bboxes[elem];
-      edges[2 * i + 0] = {elem_bbox.l[axis], elem, bboxedge_type::low};
-      edges[2 * i + 1] = {elem_bbox.h[axis], elem, bboxedge_type::high};
-    }
+      best_cost = best_split.cost;
+      best_edge = best_split.edge;
+      best_axis = axis_candidate;
 
-    std::sort(edges.begin(), edges.end(), bboxedge_comp);
-
-    usize nl = 0, nr = overlap.size();
-    float sa_f      = aabb_surface_area(bbox);
-    float best_cost = FLT_MAX;
-    usize best_edge = 0;
-    for (usize i = 0; i < edges.size(); ++i)
-    {
-      if (edges[i].type == bboxedge_type::high)
-      {
-        --nr;
-      }
-
-      bbox_l         = bbox_r         = bbox;
-      bbox_l.h[axis] = bbox_r.l[axis] = edges[i].pos;
-
-      float pl = aabb_surface_area(bbox_l) / sa_f;
-      float pr = aabb_surface_area(bbox_r) / sa_f;
-
-      float cost = pl * nl + pr * nr;
-
-      if (cost < best_cost)
-      {
-        best_cost = cost;
-        best_edge = i;
-      }
-
-      if (edges[i].type == bboxedge_type::low)
-      {
-        ++nl;
-      }
-    }
-
-    if (best_cost < (float)overlap.size())  // not leaf, find overlaps
-    {
-      bbox_l         = bbox_r         = bbox;
-      bbox_l.h[axis] = bbox_r.l[axis] = edges[best_edge].pos;
-
-      tree.nodes[node_number].axis  = axis;
-      tree.nodes[node_number].split = edges[best_edge].pos;
-
-      for (usize i = 0; i < best_edge; ++i)
-      {
-        if (edges[i].type == bboxedge_type::low)
-        {
-          overlap_l.push_back(edges[i].elem);
-        }
-      }
-
-      for (usize i = best_edge + 1; i < edges.size(); ++i)
-      {
-        if (edges[i].type == bboxedge_type::high)
-        {
-          overlap_r.push_back(edges[i].elem);
-        }
-      }
-    }
-    else
-    {
-      is_leaf = true;
+      memcpy(best_edges.data(), edges_workspace.data(),
+             sizeof(bboxedge) * best_edges.size());
     }
   }
 
+  // determine overlaps if justified by best cost estimate
+
+  if (best_cost < (float)overlap.size())
+  {
+    bbox_l              = bbox_r              = bbox;
+    bbox_l.h[best_axis] = bbox_r.l[best_axis] = best_edges[best_edge].pos;
+
+    tree.nodes[node_number].axis  = best_axis;
+    tree.nodes[node_number].split = best_edges[best_edge].pos;
+
+    for (usize i = 0; i < best_edge; ++i)
+    {
+      if (best_edges[i].type == bboxedge_type::low)
+      {
+        overlap_l.push_back(best_edges[i].elem);
+      }
+    }
+
+    for (usize i = best_edge + 1; i < best_edges.size(); ++i)
+    {
+      if (best_edges[i].type == bboxedge_type::high)
+      {
+        overlap_r.push_back(best_edges[i].elem);
+      }
+    }
+  }
+  else
+  {
+    is_leaf = true;
+  }
+
+  // continue building or terminate at leaf
+
   if (depth < tree.max_depth && !is_leaf)
   {
-    int new_axis  = (axis + 1) % 3;
     int new_depth = ++depth;
 
-    kd_build(new_axis, bbox_l, node_number, overlap_l, new_depth, metadata,
-             tree);
+    kd_build(bbox_l, node_number, overlap_l, new_depth, metadata, tree);
 
     tree.nodes[node_number].child_r = tree.nodes.size();
-    kd_build(new_axis, bbox_r, node_number, overlap_r, new_depth, metadata,
-             tree);
+    kd_build(bbox_r, node_number, overlap_r, new_depth, metadata, tree);
   }
   else
   {
