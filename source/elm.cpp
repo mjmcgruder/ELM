@@ -29,13 +29,15 @@ int main(int argc, char** argv)
   bool print_vkfeatures     = false;
   std::string output_string = "mach";
   std::string cmap_string   = "jet";
+  bool init_only            = false;
 
-  const usize optc     = 4;
+  const usize optc     = 5;
   option optlist[optc] = {
   mkopt("ifile", "input file prefix", &ifile),
   mkopt("features", "prints vulkan implementation features", &print_vkfeatures),
   mkopt("cmap", "colormap selection", &cmap_string),
   mkopt("output", "rendering output", &output_string),
+  mkopt("initonly", "do not render, only initialize", &init_only),
   };
 
   bool help = false;
@@ -235,7 +237,10 @@ int main(int argc, char** argv)
 
     rcdata.update_descset();
 
-    render_loop(rcdata, rcmetadata);
+    if (!init_only)
+    {
+      render_loop(rcdata, rcmetadata);
+    }
 
   }  // ensures dbuffers clear before vulkan deinit
 
