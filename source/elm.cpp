@@ -92,7 +92,15 @@ int main(int argc, char** argv)
 
   /* render */
 
+  printf("--- initializing Vulkan ---\n");
+  auto i0 = std::chrono::steady_clock::now();
+
   vkinit(print_vkfeatures);
+
+  auto i1 = std::chrono::steady_clock::now();
+
+  std::chrono::duration<double, std::milli> initialization_duration = i1 - i0;
+  printf("  done, finished in %.1f ms\n\n", initialization_duration.count());
 
   {
 
