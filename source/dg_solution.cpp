@@ -22,6 +22,7 @@
 #include <unordered_map>
 
 #include "basic_types.cpp"
+#include "error.cpp"
 
 
 // element type and helper functions
@@ -199,12 +200,12 @@ float* dg_solution::node(u32 e, u32 n)
 }
 
 
-#define iochk(f, num)                  \
-  {                                    \
-    if ((f) != (num))                  \
-    {                                  \
-      /*errout("i/o operation failed!");*/ \
-    }                                  \
+#define iochk(f, num)                     \
+  {                                       \
+    if ((f) != (num))                     \
+    {                                     \
+      TERMINATE("i/o operation failed!"); \
+    }                                     \
   }
 
 
@@ -215,8 +216,10 @@ dg_solution read_dg_solution(const char* fname)
   float gamma = 1.4;
 
   FILE* fstr = fopen(fname, "rb");
-  // if (!fstr)
-  //   errout("failed to open file \"%s\" for state read!", fname);
+  if (!fstr)
+  {
+    TERMINATE("failed to open file \"%s\" for state read!", fname);
+  }
 
   /* metadata */
 

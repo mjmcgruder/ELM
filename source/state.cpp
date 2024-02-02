@@ -14,7 +14,9 @@
 /* You should have received a copy of the GNU General Public License          */
 /* along with this program.  If not, see <https://www.gnu.org/licenses/>.     */
 
+
 #pragma once
+
 
 #include <cstdarg>
 #include <cstdio>
@@ -28,13 +30,16 @@
 /* render configuration */
 /* -------------------- */
 
+
 #ifndef SHADER_DIR
 #define SHADER_DIR "./"
 #endif
 
+
 /* --------------- */
 /* game play state */
 /* --------------- */
+
 
 dg_solution  rendering_data;
 render_field current_field;
@@ -60,9 +65,11 @@ bool view_axis_y_set        = false;
 bool view_axis_z_set        = false;
 bool render_ui              = true;
 
+
 /* --------------- */
 /* rendering state */
 /* --------------- */
+
 
 /* constatns */
 
@@ -131,9 +138,11 @@ VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
 };
 
-/* ---------------------------- */
-/* memory management and errors */
-/* ---------------------------- */
+
+/* ---------------- */
+/* cleanup routines */
+/* ---------------- */
+
 
 void clean_swap_chain()
 {
@@ -164,44 +173,3 @@ void clean_global_resources()
   glfwDestroyWindow(window);
   glfwTerminate();
 }
-
-#define ERR_MSG_SIZE 4096
-void clean_and_exit(const char* file, int line, ...)
-{
-  // print a nice messsage
-  char message[ERR_MSG_SIZE];
-  va_list args;
-  va_start(args, line);
-  vsnprintf(message, ERR_MSG_SIZE, va_arg(args, char*), args);
-  va_end(args);
-  printf("error! (line %d of %s):\n", line, file);
-  printf("  %s\n\n", message);
-  // kill the fancy objects
-  clean_global_resources();
-  // bail out
-  exit(1);
-}
-
-#define VKTERMINATE(...) clean_and_exit(__FILE__, __LINE__, __VA_ARGS__)
-
-#define VK_CHECK(func, ...)                     \
-  {                                             \
-    VkResult fail_result;                       \
-    if ((fail_result = (func)) != VK_SUCCESS)   \
-    {                                           \
-      printf("result code: %d\n", fail_result); \
-      VKTERMINATE(__VA_ARGS__);                 \
-    }                                           \
-  }
-
-#define VK_CHECK_SUBOPTIMAL(func, ...)             \
-  {                                                \
-    VkResult fail_result = (func);                 \
-    if (fail_result != VK_SUCCESS &&               \
-        fail_result != VK_ERROR_OUT_OF_DATE_KHR && \
-        fail_result != VK_SUBOPTIMAL_KHR)          \
-    {                                              \
-      printf("result code: %d\n", fail_result);    \
-      VKTERMINATE(__VA_ARGS__);                    \
-    }                                              \
-  }

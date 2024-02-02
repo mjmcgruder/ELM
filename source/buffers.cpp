@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "basic_types.cpp"
+#include "error_vulkan.cpp"
 #include "transform.cpp"
 
 
