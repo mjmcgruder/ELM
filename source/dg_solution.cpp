@@ -251,12 +251,17 @@ dg_solution read_dg_solution(const char* fname)
 
   /* read geometry nodes */
 
+  double* nodes_tmp = new double[solution.nodes.size()];
+
+  iochk(fread(nodes_tmp, sizeof(double), solution.nodes.size(), fstr),
+        solution.nodes.size());
+
   for (usize i = 0; i < solution.nodes.size(); ++i)
   {
-    double data;
-    iochk(fread(&data, sizeof(double), 1, fstr), 1);
-    solution.nodes[i] = (float)data;
+    solution.nodes[i] = float(nodes_tmp[i]);
   }
+
+  delete[] nodes_tmp;
 
   /* read each output */
 
@@ -270,12 +275,17 @@ dg_solution read_dg_solution(const char* fname)
 
     render_field& field = solution.add_field(key_arr, state_type::conservative);
 
+    double* state_tmp = new double[field.state.size()];
+
+    iochk(fread(state_tmp, sizeof(double), field.state.size(), fstr),
+          field.state.size());
+
     for (usize i = 0; i < field.state.size(); ++i)
     {
-      double data;
-      iochk(fread(&data, sizeof(double), 1, fstr), 1);
-      field.state[i] = data;
+      field.state[i] = float(state_tmp[i]);
     }
+
+    delete[] state_tmp;
   }
 
   fclose(fstr);
