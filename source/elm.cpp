@@ -105,6 +105,7 @@ int main(int argc, char** argv)
   {
 
     compute_pipeline comp_metadata(SHADER_DIR "metadata.spv", 7);
+    compute_pipeline flatten_bbox(SHADER_DIR "reduction_flatten_bbox.spv", 5);
 
     raycast_data rcdata;
 
@@ -156,33 +157,99 @@ int main(int argc, char** argv)
     comp_metadata.dset.update(rcdata.d_output_bounds, 5);
     comp_metadata.run((rendering_data.nelem + (128 - 1)) / 128, 1, 1);
 
-    // augment metadata computation to avoid using gpu atomics for portability
-
     render_metadata rcmetadata;
-    rcmetadata.elem_bboxes    = std::vector<aabb>(rendering_data.nelem);
-    glm::vec2* output_bounds  = new glm::vec2[rendering_data.nelem];
+    rcmetadata.elem_bboxes = std::vector<aabb>(rendering_data.nelem);
 
     memcpy_dtoh(rcmetadata.elem_bboxes.data(), rcdata.d_bboxes);
-    memcpy_dtoh(output_bounds,                 rcdata.d_output_bounds);
 
-    rcmetadata.domain_bbox = aabb();
+    // compute domain bounding box (avoiding atomics for portability)
+
+    {
+      dbuffer<float> d_xpnts(2 * rendering_data.nelem);
+      dbuffer<float> d_ypnts(2 * rendering_data.nelem);
+      dbuffer<float> d_zpnts(2 * rendering_data.nelem);
+
+      dmalloc(d_xpnts);
+      dmalloc(d_ypnts);
+      dmalloc(d_zpnts);
+
+      flatten_bbox.dset.update(rcdata.d_geom,   0);
+      flatten_bbox.dset.update(rcdata.d_bboxes, 1);
+      flatten_bbox.dset.update(d_xpnts,         2);
+      flatten_bbox.dset.update(d_ypnts,         3);
+      flatten_bbox.dset.update(d_zpnts,         4);
+      flatten_bbox.run((rendering_data.nelem + (128 - 1)) / 128, 1, 1);
+
+      std::vector<float> h_xpnts(2 * rendering_data.nelem);
+      std::vector<float> h_ypnts(2 * rendering_data.nelem);
+      std::vector<float> h_zpnts(2 * rendering_data.nelem);
+
+      memcpy_dtoh(h_xpnts.data(), d_xpnts);
+      memcpy_dtoh(h_ypnts.data(), d_ypnts);
+      memcpy_dtoh(h_zpnts.data(), d_zpnts);
+
+      rcmetadata.domain_bbox = aabb();
+
+      for (usize i = 0; i < 2 * rendering_data.nelem; ++i)
+      {
+        if (h_xpnts[i] < rcmetadata.domain_bbox.l.x)
+        {
+          rcmetadata.domain_bbox.l.x = h_xpnts[i];
+        }
+        if (h_xpnts[i] > rcmetadata.domain_bbox.h.x)
+        {
+          rcmetadata.domain_bbox.h.x = h_xpnts[i];
+        }
+
+        if (h_ypnts[i] < rcmetadata.domain_bbox.l.y)
+        {
+          rcmetadata.domain_bbox.l.y = h_ypnts[i];
+        }
+        if (h_ypnts[i] > rcmetadata.domain_bbox.h.y)
+        {
+          rcmetadata.domain_bbox.h.y = h_ypnts[i];
+        }
+
+        if (h_zpnts[i] < rcmetadata.domain_bbox.l.z)
+        {
+          rcmetadata.domain_bbox.l.z = h_zpnts[i];
+        }
+        if (h_zpnts[i] > rcmetadata.domain_bbox.h.z)
+        {
+          rcmetadata.domain_bbox.h.z = h_zpnts[i];
+        }
+      }
+
+      // for (usize ei = 0; ei < rendering_data.nelem; ++ei)
+      // {
+      //   aabb bbox = rcmetadata.elem_bboxes[ei];
+      //   aabb_grow(rcmetadata.domain_bbox, bbox.l);
+      //   aabb_grow(rcmetadata.domain_bbox, bbox.h);
+      // }
+
+      memcpy_htod(rcdata.d_domain_bbox, &rcmetadata.domain_bbox);
+    }  // ensure temp buffer deallocation
+
+    // compute output bounds (avoiding atomics for portability)
+
+    glm::vec2* output_bounds = new glm::vec2[rendering_data.nelem];
+
+    memcpy_dtoh(output_bounds, rcdata.d_output_bounds);
+
     glm::vec2 domain_output_bounds(+FLT_MAX, -FLT_MAX);
     for (usize ei = 0; ei < rendering_data.nelem; ++ei)
     {
-      aabb bbox = rcmetadata.elem_bboxes[ei];
-      aabb_grow(rcmetadata.domain_bbox, bbox.l);
-      aabb_grow(rcmetadata.domain_bbox, bbox.h);
-
       if (output_bounds[ei].x < domain_output_bounds.x)
         domain_output_bounds.x = output_bounds[ei].x;
       if (output_bounds[ei].y > domain_output_bounds.y)
         domain_output_bounds.y = output_bounds[ei].y;
     }
 
-    memcpy_htod(rcdata.d_domain_bbox, &rcmetadata.domain_bbox);
     memcpy_htod(rcdata.d_domain_output_bounds, &domain_output_bounds);
 
     delete[] output_bounds;
+
+    // metadata logging
 
     auto t1 = std::chrono::steady_clock::now();
     std::chrono::duration<double, std::milli> metadata_duration = t1 - t0;
@@ -222,6 +289,8 @@ int main(int argc, char** argv)
 
     memcpy_htod(rcdata.d_kdnodes, tree.nodes.data());
     memcpy_htod(rcdata.d_kd_leaf_elements, tree.leaf_elements.data());
+
+    // k-d tree logging
 
     auto t3 = std::chrono::steady_clock::now();
 
