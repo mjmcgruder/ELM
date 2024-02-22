@@ -260,7 +260,6 @@ int main(int argc, char** argv)
       }
 
       memcpy_htod(rcdata.d_domain_output_bounds, &domain_output_bounds);
-
     }  // ensure temp buffer deallocation
 
     // glm::vec2* output_bounds = new glm::vec2[rendering_data.nelem];
