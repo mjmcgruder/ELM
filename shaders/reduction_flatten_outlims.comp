@@ -18,9 +18,6 @@
 #version 450
 
 
-#include "data_structures.glsl"
-
-
 layout(local_size_x = 128) in;
 
 
@@ -34,10 +31,8 @@ layout(std430, set = 0, binding = 0) buffer state_params {
   uint  nbfq;
   float gamma;
 } params;
-layout(std430, set = 0, binding = 1) buffer bbox_data   { aabb  bboxes[]; };
-layout(std430, set = 0, binding = 2) buffer bbox_pnts_x { float xpnts[];  };
-layout(std430, set = 0, binding = 3) buffer bbox_pnts_y { float ypnts[];  };
-layout(std430, set = 0, binding = 4) buffer bbox_pnts_z { float zpnts[];  };
+layout(std430, set = 0, binding = 1) buffer out_bounds { vec2  bounds[]; };
+layout(std430, set = 0, binding = 2) buffer out_bvals  { float bvals[];  };
 
 
 void main()
@@ -46,13 +41,9 @@ void main()
 
   if (elem < params.nelem)
   {
-    aabb box = bboxes[elem];
+    vec2 ebound = bounds[elem];
 
-    xpnts[elem]                = box.l.x;
-    ypnts[elem]                = box.l.y;
-    zpnts[elem]                = box.l.z;
-    xpnts[params.nelem + elem] = box.h.x;
-    ypnts[params.nelem + elem] = box.h.y;
-    zpnts[params.nelem + elem] = box.h.z;
+    bvals[elem]                = ebound.x;
+    bvals[elem + params.nelem] = ebound.y;
   }
 }

@@ -106,6 +106,7 @@ int main(int argc, char** argv)
 
     compute_pipeline comp_metadata(SHADER_DIR "metadata.spv", 7);
     compute_pipeline flatten_bbox(SHADER_DIR "reduction_flatten_bbox.spv", 5);
+    compute_pipeline flatten_lims(SHADER_DIR "reduction_flatten_outlims.spv", 3);
 
     raycast_data rcdata;
 
@@ -232,22 +233,52 @@ int main(int argc, char** argv)
 
     // compute output bounds (avoiding atomics for portability)
 
-    glm::vec2* output_bounds = new glm::vec2[rendering_data.nelem];
-
-    memcpy_dtoh(output_bounds, rcdata.d_output_bounds);
-
     glm::vec2 domain_output_bounds(+FLT_MAX, -FLT_MAX);
-    for (usize ei = 0; ei < rendering_data.nelem; ++ei)
     {
-      if (output_bounds[ei].x < domain_output_bounds.x)
-        domain_output_bounds.x = output_bounds[ei].x;
-      if (output_bounds[ei].y > domain_output_bounds.y)
-        domain_output_bounds.y = output_bounds[ei].y;
-    }
+      dbuffer<float> d_bvals(2 * rendering_data.nelem);
+      dmalloc(d_bvals);
 
-    memcpy_htod(rcdata.d_domain_output_bounds, &domain_output_bounds);
+      flatten_lims.dset.update(rcdata.d_geom,          0);
+      flatten_lims.dset.update(rcdata.d_output_bounds, 1);
+      flatten_lims.dset.update(d_bvals,                2);
+      flatten_lims.run((rendering_data.nelem + (128 - 1)) / 128, 1, 1);
 
-    delete[] output_bounds;
+      std::vector<float> h_bvals(2 * rendering_data.nelem);
+
+      memcpy_dtoh(h_bvals.data(), d_bvals);
+
+      for (usize i = 0; i < 2 * rendering_data.nelem; ++i)
+      {
+        if (h_bvals[i] < domain_output_bounds.x)
+        {
+          domain_output_bounds.x = h_bvals[i];
+        }
+        if (h_bvals[i] > domain_output_bounds.y)
+        {
+          domain_output_bounds.y = h_bvals[i];
+        }
+      }
+
+      memcpy_htod(rcdata.d_domain_output_bounds, &domain_output_bounds);
+
+    }  // ensure temp buffer deallocation
+
+    // glm::vec2* output_bounds = new glm::vec2[rendering_data.nelem];
+    //
+    // memcpy_dtoh(output_bounds, rcdata.d_output_bounds);
+    //
+    // glm::vec2 domain_output_bounds(+FLT_MAX, -FLT_MAX);
+    // for (usize ei = 0; ei < rendering_data.nelem; ++ei)
+    // {
+    //   if (output_bounds[ei].x < domain_output_bounds.x)
+    //     domain_output_bounds.x = output_bounds[ei].x;
+    //   if (output_bounds[ei].y > domain_output_bounds.y)
+    //     domain_output_bounds.y = output_bounds[ei].y;
+    // }
+    //
+    // memcpy_htod(rcdata.d_domain_output_bounds, &domain_output_bounds);
+    //
+    // delete[] output_bounds;
 
     // metadata logging
 
