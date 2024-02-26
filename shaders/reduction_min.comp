@@ -18,13 +18,57 @@
 #version 450
 
 
-layout(local_size_x = 256) in;
+#define BLOCK_SIZE 256
+#define REGION_EXP 10
+#define REGION_SIZE (1 << REGION_EXP)
+
+
+layout(local_size_x = BLOCK_SIZE) in;
 
 
 layout(std430, set = 0, binding = 0) buffer input_size   { uint  isize;  };
 layout(std430, set = 0, binding = 1) buffer input_array  { float iarr[]; };
 layout(std430, set = 0, binding = 2) buffer output_array { float oarr[]; };
 
+
+#include "constants.glsl"
+
+
+shared float sarr[REGION_SIZE];
+
+
 void main()
 {
+  // TODO: probably read a little more on shared memory and synchronization
+
+  // load into shared memory, pad with null value if necessary
+
+  for (uint is = gl_LocalInvocationID.x; is < REGION_SIZE; is += BLOCK_SIZE)
+  {
+    uint ii = REGION_SIZE * gl_WorkGroupID.x + is;  // iterator over input
+    if (ii < isize) { sarr[is] = iarr[ii]; }
+    else            { sarr[is] = FLT_MAX;  }
+  }
+
+  memoryBarrierShared();
+  barrier();
+
+  // perform reduction within block
+
+  uint half_size = REGION_SIZE;
+
+  for (uint i = 0; i < REGION_EXP; ++i)
+  {
+    half_size = half_size >> 1;
+
+    if (uint j = gl_LocalInvocationID.x; j < half_size; j += BLOCK_SIZE)
+    {
+      sarr[j] = min(sarr[j], sarr[half_size + j]);
+    }
+
+    memoryBarrierShared();
+    barrier();
+  }
+
+  oarr[gl_WorkGroupID.x] = sarr[0];
 }
